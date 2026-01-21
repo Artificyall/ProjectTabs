@@ -1,21 +1,12 @@
 package com.github.artificyal.projecttabs
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.project.ProjectManagerListener
 import com.intellij.openapi.wm.WindowManager
-import com.intellij.openapi.application.ApplicationManager
-import javax.swing.JFrame
-
 
 class ProjectTabsUpdateListener : ProjectManagerListener {
-
-    override fun projectOpened(project: Project) {
-        if (ProjectTabsFactory.singleWindowMode) {
-            ProjectTabsFactory.ensureSingleVisible(project)
-        }
-        ProjectTabsFactory.refreshAll()
-    }
 
     override fun projectClosed(project: Project) {
         if (ProjectTabsFactory.singleWindowMode) {
@@ -34,6 +25,4 @@ class ProjectTabsUpdateListener : ProjectManagerListener {
         ProjectTabsFactory.refreshAll()
     }
 }
-
-
 

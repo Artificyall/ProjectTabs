@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.github.artificyal"
-version = "1.1"
+version = "1.2"
 
 repositories {
     mavenCentral()
@@ -31,7 +31,6 @@ tasks {
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
         compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
     }
-
 
     // Le nouveau plugin configure automatiquement beaucoup de choses,
     // mais vous pouvez toujours personnaliser :
