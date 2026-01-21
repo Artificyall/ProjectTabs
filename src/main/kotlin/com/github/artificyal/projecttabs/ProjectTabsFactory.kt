@@ -29,13 +29,9 @@ import javax.swing.JLabel
 import javax.swing.ScrollPaneConstants
 import javax.swing.SwingConstants
 import javax.swing.TransferHandler
-import java.util.concurrent.ConcurrentHashMap
-import com.intellij.openapi.application.ApplicationManager
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.RenderingHints
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
 import javax.swing.SwingUtilities
 import javax.swing.Timer
 
@@ -226,12 +222,16 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                 val tabContainer = getComponent(i) as? JBPanel<*> ?: continue
 
                 // La structure est maintenant : BorderLayout avec WEST (closeButtonContainer) et CENTER (nameLabel)
-                val layout = tabContainer.layout as? java.awt.BorderLayout
-                val nameLabel = layout?.getLayoutComponent(java.awt.BorderLayout.CENTER) as? JLabel
+                val layout = tabContainer.layout as? BorderLayout
+                val nameLabel = layout?.getLayoutComponent(BorderLayout.CENTER) as? JLabel
+                val closeButtonContainer = layout?.getLayoutComponent(BorderLayout.WEST) as? JBPanel<*>
 
                 // Mettre à jour la référence au projet et à l'index dans l'onglet
                 tabContainer.putClientProperty(PROJECT_PROPERTY, openProject)
                 tabContainer.putClientProperty(INDEX_PROPERTY, i)
+
+                // Afficher ou masquer la croix selon le nombre de projets
+                closeButtonContainer?.isVisible = openProjects.size > 1
 
                 tabContainer.background = if (isSelected) com.intellij.ui.JBColor(0x35373A, 0x35373A) else com.intellij.ui.JBColor(0x1E1F22, 0x1E1F22)
 
@@ -250,13 +250,6 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
             for ((index, openProject) in openProjects.withIndex()) {
                 val isSelected = openProject == project
 
-                val closeButton = CloseButton(openProject)
-                val closeButtonContainer = JBPanel<JBPanel<*>>(java.awt.BorderLayout()).apply {
-                    isOpaque = false
-                    add(closeButton, java.awt.BorderLayout.CENTER)
-                    preferredSize = JBUI.size(20, 0)
-                }
-
                 val tabContainer = JBPanel<JBPanel<*>>(BorderLayout()).apply {
                     isOpaque = true
                     background = if (isSelected) com.intellij.ui.JBColor(0x35373A, 0x35373A) else com.intellij.ui.JBColor(0x1E1F22, 0x1E1F22)
@@ -266,13 +259,25 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                         foreground = com.intellij.ui.JBColor(0x909090, 0x909090)
                         font = if (isSelected) JBUI.Fonts.label(12f).asBold() else JBUI.Fonts.label(12f)
                     }
-                    add(closeButtonContainer, java.awt.BorderLayout.WEST)
                     add(nameLabel, BorderLayout.CENTER)
                 }
 
                 // Stocker la référence au projet et à l'index dans l'onglet
                 tabContainer.putClientProperty(PROJECT_PROPERTY, openProject)
                 tabContainer.putClientProperty(INDEX_PROPERTY, index)
+
+                // Créer la croix seulement s'il y a plus d'un projet
+                var closeButton: CloseButton? = null
+                var closeButtonContainer: JBPanel<*>? = null
+                if (openProjects.size > 1) {
+                    closeButton = CloseButton(tabContainer)
+                    closeButtonContainer = JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                        isOpaque = false
+                        add(closeButton, BorderLayout.CENTER)
+                        preferredSize = JBUI.size(20, 0)
+                    }
+                    tabContainer.add(closeButtonContainer, BorderLayout.WEST)
+                }
 
                 // Créer un DragSource pour permettre le drag
                 val dragSource = DragSource.getDefaultDragSource()
@@ -282,44 +287,47 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                     TabDragGestureListener(index, tabContainer)
                 )
 
-                tabContainer.addMouseListener(object : MouseAdapter() {
-                    override fun mouseEntered(e: MouseEvent?) {
-                        val tabProject = tabContainer.getClientProperty(PROJECT_PROPERTY) as? Project
-                        if (tabProject != project) {
                 var hideTimer: Timer? = null
 
-                tabContainer.addMouseListener(object : java.awt.event.MouseAdapter() {
-                    override fun mouseEntered(e: java.awt.event.MouseEvent?) {
+                tabContainer.addMouseListener(object : MouseAdapter() {
+                    override fun mouseEntered(e: MouseEvent?) {
                         hideTimer?.stop()
-                        if (!isSelected) {
+                        val tabProject = tabContainer.getClientProperty(PROJECT_PROPERTY) as? Project
+                        if (tabProject != null && tabProject != project) {
                             tabContainer.background = com.intellij.ui.JBColor(0x2B2D30, 0x2B2D30)
                             tabContainer.repaint()
                         }
-                        closeButton.isTabHovered = true
+                        closeButton?.isTabHovered = true
                     }
 
                     override fun mouseExited(e: MouseEvent?) {
                         val tabProject = tabContainer.getClientProperty(PROJECT_PROPERTY) as? Project
-                        if (tabProject != project) {
+                        if (tabProject != null && tabProject != project) {
                             tabContainer.background = com.intellij.ui.JBColor(0x1E1F22, 0x1E1F22)
                             tabContainer.repaint()
                         }
                         // Utiliser un timer pour vérifier après un court délai si la souris est toujours dans le tabContainer ou la croix
                         hideTimer?.stop()
-                        hideTimer = Timer(50) {
-                            val mouseLocation = java.awt.MouseInfo.getPointerInfo().location
-                            val containerLocation = SwingUtilities.convertPoint(tabContainer, 0, 0, null)
-                            val containerBounds = java.awt.Rectangle(containerLocation, tabContainer.size)
+                        val closeBtn = closeButton
+                        val closeBtnContainer = closeButtonContainer
+                        if (closeBtn != null && closeBtnContainer != null) {
+                            hideTimer = Timer(50) {
+                                val mouseLocation = java.awt.MouseInfo.getPointerInfo().location
+                                val containerLocation = SwingUtilities.convertPoint(tabContainer, 0, 0, null)
+                                val containerBounds = java.awt.Rectangle(containerLocation, tabContainer.size)
 
-                            val closeButtonLocation = SwingUtilities.convertPoint(closeButtonContainer, 0, 0, null)
-                            val closeButtonBounds = java.awt.Rectangle(closeButtonLocation, closeButtonContainer.size)
+                                val closeButtonLocation = SwingUtilities.convertPoint(closeBtnContainer, 0, 0, null)
+                                val closeButtonBounds = java.awt.Rectangle(closeButtonLocation, closeBtnContainer.size)
 
-                            if (!containerBounds.contains(mouseLocation) && !closeButtonBounds.contains(mouseLocation)) {
-                                closeButton.isTabHovered = false
+                                if (!containerBounds.contains(mouseLocation) && !closeButtonBounds.contains(mouseLocation)) {
+                                    closeBtn.isTabHovered = false
+                                }
+                            }.apply {
+                                isRepeats = false
+                                start()
                             }
-                        }.apply {
-                            isRepeats = false
-                            start()
+                        } else {
+                            closeBtn?.isTabHovered = false
                         }
                     }
 
@@ -331,26 +339,29 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                     }
                 })
 
-                closeButtonContainer.addMouseListener(object : java.awt.event.MouseAdapter() {
-                    override fun mouseEntered(e: java.awt.event.MouseEvent?) {
+                closeButtonContainer?.addMouseListener(object : MouseAdapter() {
+                    override fun mouseEntered(e: MouseEvent?) {
                         hideTimer?.stop()
-                        closeButton.isTabHovered = true
+                        closeButton?.isTabHovered = true
                     }
 
-                    override fun mouseExited(e: java.awt.event.MouseEvent?) {
+                    override fun mouseExited(e: MouseEvent?) {
                         // Vérifier si la souris est toujours dans le tabContainer
                         hideTimer?.stop()
-                        hideTimer = Timer(50) {
-                            val mouseLocation = java.awt.MouseInfo.getPointerInfo().location
-                            val containerLocation = SwingUtilities.convertPoint(tabContainer, 0, 0, null)
-                            val containerBounds = java.awt.Rectangle(containerLocation, tabContainer.size)
+                        val closeBtn = closeButton
+                        if (closeBtn != null) {
+                            hideTimer = Timer(50) {
+                                val mouseLocation = java.awt.MouseInfo.getPointerInfo().location
+                                val containerLocation = SwingUtilities.convertPoint(tabContainer, 0, 0, null)
+                                val containerBounds = java.awt.Rectangle(containerLocation, tabContainer.size)
 
-                            if (!containerBounds.contains(mouseLocation)) {
-                                closeButton.isTabHovered = false
+                                if (!containerBounds.contains(mouseLocation)) {
+                                    closeBtn.isTabHovered = false
+                                }
+                            }.apply {
+                                isRepeats = false
+                                start()
                             }
-                        }.apply {
-                            isRepeats = false
-                            start()
                         }
                     }
                 })
@@ -395,7 +406,7 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
             override fun canImport(support: TransferHandler.TransferSupport): Boolean {
                 return support.isDataFlavorSupported(TabTransferable.DATA_FLAVOR) &&
                        support.isDrop &&
-                       support.dropAction == MOVE
+                       support.dropAction == DnDConstants.ACTION_MOVE
             }
 
             override fun importData(support: TransferHandler.TransferSupport): Boolean {
@@ -443,7 +454,7 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
         }
     }
 
-    private class CloseButton(private val targetProject: Project) : JComponent() {
+    private class CloseButton(private val tabContainer: JComponent) : JComponent() {
         private var isHovered = false
         var isTabHovered = false
             set(value) {
@@ -535,10 +546,18 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
 
         private fun closeProject() {
             ApplicationManager.getApplication().invokeLater {
-                // Fermer le projet correctement via l'API IntelliJ
-                // Cela déclenchera l'événement projectClosed qui rafraîchira automatiquement les onglets
-                ProjectManager.getInstance().closeProject(targetProject)
+                // Récupérer le projet depuis le tabContainer (qui peut avoir changé de position)
+                val targetProject = tabContainer.getClientProperty(PROJECT_PROPERTY) as? Project
+                if (targetProject != null) {
+                    // Fermer le projet correctement via l'API IntelliJ
+                    // Cela déclenchera l'événement projectClosed qui rafraîchira automatiquement les onglets
+                    ProjectManager.getInstance().closeProject(targetProject)
+                }
             }
+        }
+
+        companion object {
+            private const val PROJECT_PROPERTY = "projectTab.project"
         }
     }
 
