@@ -28,6 +28,7 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
     companion object {
         const val EXTENSION_ID = "com.github.artificyal.projecttabs.ProjectTabsFactory"
         private val PANELS = Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap<ProjectTabsPanel, Boolean>()))
+        var singleWindowMode = true
 
         fun refreshAll() {
             ApplicationManager.getApplication().invokeLater {
@@ -42,6 +43,48 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                     }
                 }
             }
+        }
+
+        fun ensureSingleVisible(activeProject: Project) {
+            ApplicationManager.getApplication().invokeLater {
+                val activeFrame = WindowManager.getInstance().getFrame(activeProject)
+                if (activeFrame == null) {
+                    ApplicationManager.getApplication().executeOnPooledThread {
+                        Thread.sleep(500)
+                        ApplicationManager.getApplication().invokeLater {
+                            val retryFrame = WindowManager.getInstance().getFrame(activeProject)
+                            if (retryFrame != null) {
+                                performEnsureSingleVisible(activeProject, retryFrame)
+                            }
+                        }
+                    }
+                } else {
+                    performEnsureSingleVisible(activeProject, activeFrame)
+                }
+            }
+        }
+
+        private fun performEnsureSingleVisible(activeProject: Project, activeFrame: JFrame) {
+            val openProjects = ProjectManager.getInstance().openProjects
+
+            val currentFocusedFrame = openProjects
+                .filter { it != activeProject }
+                .mapNotNull { WindowManager.getInstance().getFrame(it) }
+                .find { it.isFocused || it.isActive }
+
+            if (currentFocusedFrame != null) {
+                activeFrame.bounds = currentFocusedFrame.bounds
+                if (currentFocusedFrame.extendedState != JFrame.ICONIFIED) {
+                    activeFrame.extendedState = currentFocusedFrame.extendedState
+                }
+            }
+
+            activeFrame.isVisible = true
+            activeFrame.toFront()
+            activeFrame.requestFocus()
+
+
+            refreshAll()
         }
     }
 
@@ -62,56 +105,90 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
         return scrollPane
     }
 
-    private class ProjectTabsPanel(private val project: Project) : JBPanel<ProjectTabsPanel>(FlowLayout(FlowLayout.LEFT, 0, 0)) {
-        
+    private class ProjectTabsPanel(private val project: Project) : JBPanel<ProjectTabsPanel>() {
+
         init {
             isOpaque = true
-            background = JBUI.CurrentTheme.DefaultTabs.background()
-            border = JBUI.Borders.customLine(JBUI.CurrentTheme.DefaultTabs.borderColor(), 0, 0, 1, 0)
+            background = com.intellij.ui.JBColor(0x1E1F22, 0x1E1F22)
+            layout = java.awt.GridLayout(1, 0)
+            border = JBUI.Borders.customLine(com.intellij.ui.JBColor(0x393b40, 0x393b40), 0, 0, 1, 0)
         }
 
         fun refreshTabs() {
-            removeAll()
             val openProjects = ProjectManager.getInstance().openProjects
+            if (componentCount == openProjects.size && componentCount > 0) {
+                updateTabsUI(openProjects)
+            } else {
+                buildAllTabs(openProjects)
+            }
+        }
+
+        private fun updateTabsUI(openProjects: Array<Project>) {
+            for (i in openProjects.indices) {
+                val openProject = openProjects[i]
+                val isSelected = openProject == project
+
+                val tabContainer = getComponent(i) as? JBPanel<*> ?: continue
+                val nameLabel = tabContainer.getComponent(0) as? JLabel
+
+                tabContainer.background = if (isSelected) com.intellij.ui.JBColor(0x35373A, 0x35373A) else com.intellij.ui.JBColor(0x1E1F22, 0x1E1F22)
+
+                nameLabel?.apply {
+                    foreground = com.intellij.ui.JBColor(0x909090, 0x909090)
+                    font = if (isSelected) JBUI.Fonts.label(12f).asBold() else JBUI.Fonts.label(12f)
+                }
+            }
+        }
+
+        private fun buildAllTabs(openProjects: Array<Project>) {
+            removeAll()
+            layout = java.awt.GridLayout(1, openProjects.size)
+
             for (openProject in openProjects) {
                 val isSelected = openProject == project
-                val button = JButton(openProject.name).apply {
-                    isFocusable = false
-                    isContentAreaFilled = isSelected
-                    isBorderPainted = false
-                    margin = JBUI.insets(2, 10)
-                    
-                    if (isSelected) {
-                        background = JBUI.CurrentTheme.DefaultTabs.underlineColor()
-                        foreground = JBUI.CurrentTheme.DefaultTabs.underlinedTabForeground()
-                    } else {
-                        foreground = JBUI.CurrentTheme.Label.foreground()
-                        background = JBUI.CurrentTheme.DefaultTabs.background()
+
+                val tabContainer = JBPanel<JBPanel<*>>(java.awt.BorderLayout()).apply {
+                    isOpaque = true
+                    background = if (isSelected) com.intellij.ui.JBColor(0x35373A, 0x35373A) else com.intellij.ui.JBColor(0x1E1F22, 0x1E1F22)
+                    border = JBUI.Borders.customLine(com.intellij.ui.JBColor(0x393b40, 0x393b40), 0, 0, 0, 1)
+
+                    val nameLabel = JLabel(openProject.name, javax.swing.SwingConstants.CENTER).apply {
+                        foreground = com.intellij.ui.JBColor(0x909090, 0x909090)
+                        font = if (isSelected) JBUI.Fonts.label(12f).asBold() else JBUI.Fonts.label(12f)
+                    }
+                    add(nameLabel, java.awt.BorderLayout.CENTER)
+                }
+
+                tabContainer.addMouseListener(object : java.awt.event.MouseAdapter() {
+                    override fun mouseEntered(e: java.awt.event.MouseEvent?) {
+                        if (!isSelected) {
+                            tabContainer.background = com.intellij.ui.JBColor(0x2B2D30, 0x2B2D30)
+                            tabContainer.repaint()
+                        }
                     }
 
-                    addActionListener {
-                        focusProject(openProject)
+                    override fun mouseExited(e: java.awt.event.MouseEvent?) {
+                        if (!isSelected) {
+                            tabContainer.background = com.intellij.ui.JBColor(0x1E1F22, 0x1E1F22)
+                            tabContainer.repaint()
+                        }
                     }
-                }
-                add(button)
+
+                    override fun mouseClicked(e: java.awt.event.MouseEvent?) {
+                        if (openProject != project) {
+                            ProjectTabsFactory.ensureSingleVisible(openProject)
+                        }
+                    }
+                })
+
+                add(tabContainer)
             }
             revalidate()
             repaint()
         }
+    }
 
-        private fun focusProject(targetProject: Project) {
-            val currentFrame = WindowManager.getInstance().getFrame(project)
-            val targetFrame = WindowManager.getInstance().getFrame(targetProject)
-            
-            if (targetFrame != null) {
-                if (currentFrame != null && currentFrame != targetFrame) {
-                    targetFrame.bounds = currentFrame.bounds
-                    targetFrame.extendedState = currentFrame.extendedState
-                }
-                targetFrame.toFront()
-                targetFrame.requestFocus()
-                ProjectTabsFactory.refreshAll()
-            }
-        }
+    private fun focusProject(targetProject: Project) {
+        ProjectTabsFactory.ensureSingleVisible(targetProject)
     }
 }
