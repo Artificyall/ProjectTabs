@@ -1,6 +1,6 @@
 <idea-plugin>
     <id>com.github.artificyal.projecttabs</id>
-    <name>Linux Project Tabs</name>
+    <name>Project Tabs</name>
     <vendor>Artificyal</vendor>
 
     <description><![CDATA[
