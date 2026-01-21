@@ -11,6 +11,7 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <ideRootPaneNorth implementation="com.github.artificyal.projecttabs.ProjectTabsFactory"/>
+        <postStartupActivity implementation="com.github.artificyal.projecttabs.ProjectTabsStartupActivity"/>
     </extensions>
 
 

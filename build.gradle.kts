@@ -32,7 +32,6 @@ tasks {
         compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
     }
 
-
     // Le nouveau plugin configure automatiquement beaucoup de choses,
     // mais vous pouvez toujours personnaliser :
     patchPluginXml {
