@@ -1,0 +1,38 @@
+# IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+!/.idea/icon.png
+!/.idea/icon_dark.png
+
+# IntelliJ Platform Plugin
+.intellijPlatform/
+
+# VS Code
+.vscode/
+
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+local.properties
+
+# Kotlin
+.kotlin/
+
+# macOS
+.DS_Store
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Log files
+*.log
+
+# Temp files
+*.tmp
+*.temp

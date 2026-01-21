@@ -1,0 +1,21 @@
+<idea-plugin>
+    <id>com.github.artificyal.projecttabs</id>
+    <name>Linux Project Tabs</name>
+    <vendor>Artificyal</vendor>
+
+    <description><![CDATA[
+    Adds a project tab bar at the top of the IDE to easily switch between open projects on Linux.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <ideRootPaneNorth implementation="com.github.artificyal.projecttabs.ProjectTabsFactory"/>
+    </extensions>
+
+
+    <applicationListeners>
+        <listener class="com.github.artificyal.projecttabs.ProjectTabsUpdateListener"
+                  topic="com.intellij.openapi.project.ProjectManagerListener"/>
+    </applicationListeners>
+</idea-plugin>
