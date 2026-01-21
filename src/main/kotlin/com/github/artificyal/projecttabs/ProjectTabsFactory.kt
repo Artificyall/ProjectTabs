@@ -29,6 +29,11 @@ import javax.swing.JLabel
 import javax.swing.ScrollPaneConstants
 import javax.swing.SwingConstants
 import javax.swing.TransferHandler
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.RenderingHints
+import javax.swing.SwingUtilities
+import javax.swing.Timer
 
 class ProjectTabsFactory() : IdeRootPaneNorthExtension {
 
@@ -38,71 +43,71 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
         const val EXTENSION_ID = "com.github.artificyal.projecttabs.ProjectTabsFactory"
         private val PANELS = Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap<ProjectTabsPanel, Boolean>()))
         var singleWindowMode = true
-        
+
         // Gestion de l'ordre personnalisé des projets
         private val projectOrder = Collections.synchronizedList(LinkedList<String>())
-        
+
         fun getOrderedProjects(): List<Project> {
             val allProjects = ProjectManager.getInstance().openProjects.toList()
             val ordered = projectOrder.filter { path -> allProjects.any { it.basePath == path || it.name == path } }
-            
+
             // Ajouter les nouveaux projets à la fin
             val newProjects = allProjects.filter { project ->
                 val identifier = project.basePath ?: project.name
                 !ordered.contains(identifier)
             }
-            
+
             return (ordered.mapNotNull { path ->
                 allProjects.find { (it.basePath ?: it.name) == path }
             } + newProjects).distinct()
         }
-        
+
         fun reorderProjects(sourceIndex: Int, targetIndex: Int) {
             synchronized(projectOrder) {
                 val allProjects = ProjectManager.getInstance().openProjects.toList()
                 val currentOrder = projectOrder.toMutableList()
-                
+
                 // S'assurer que projectOrder contient tous les projets actuels
                 val currentPaths = allProjects.map { it.basePath ?: it.name }
                 val existingOrder = currentOrder.filter { currentPaths.contains(it) }
                 val newProjects = currentPaths.filter { !currentOrder.contains(it) }
                 val fullOrder = (existingOrder + newProjects).distinct().toMutableList()
-                
+
                 if (sourceIndex in fullOrder.indices && targetIndex in 0 until fullOrder.size && sourceIndex != targetIndex) {
                     val item = fullOrder.removeAt(sourceIndex)
                     val sizeBeforeRemove = fullOrder.size + 1 // taille avant le remove
-                    
+
                     // Ajuster l'index cible après le retrait de l'élément source
                     // Si targetIndex > sourceIndex, après le remove, targetIndex devient targetIndex - 1
                     // Si targetIndex était le dernier élément (sizeBeforeRemove - 1), on veut mettre à la fin
                     var adjustedTargetIndex = if (targetIndex > sourceIndex) targetIndex - 1 else targetIndex
-                    
+
                     // Cas spécial : si on déplace vers le dernier index, on veut vraiment mettre à la fin
                     if (targetIndex == sizeBeforeRemove - 1 && sourceIndex < targetIndex) {
                         adjustedTargetIndex = fullOrder.size // mettre à la fin
                     }
-                    
+
                     // S'assurer que l'index ajusté est valide (add() accepte 0 à size inclus)
                     val finalIndex = adjustedTargetIndex.coerceIn(0, fullOrder.size)
                     fullOrder.add(finalIndex, item)
-                    
+
                     projectOrder.clear()
                     projectOrder.addAll(fullOrder)
-                    
+
                     refreshAll()
                 }
             }
         }
-        
+
         private fun initializeProjectOrder(projects: Array<Project>) {
             synchronized(projectOrder) {
                 val currentPaths = projects.map { it.basePath ?: it.name }
                 val existingOrder = projectOrder.toList()
-                
+
                 // Préserver l'ordre existant pour les projets déjà présents
                 val preserved = existingOrder.filter { currentPaths.contains(it) }
                 val newProjects = currentPaths.filter { !existingOrder.contains(it) }
-                
+
                 projectOrder.clear()
                 projectOrder.addAll(preserved + newProjects)
             }
@@ -201,7 +206,7 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
             val openProjects = ProjectManager.getInstance().openProjects
             ProjectTabsFactory.initializeProjectOrder(openProjects)
             val orderedProjects = ProjectTabsFactory.getOrderedProjects().toTypedArray()
-            
+
             if (componentCount == orderedProjects.size && componentCount > 0) {
                 updateTabsUI(orderedProjects)
             } else {
@@ -215,12 +220,19 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                 val isSelected = openProject == project
 
                 val tabContainer = getComponent(i) as? JBPanel<*> ?: continue
-                val nameLabel = tabContainer.getComponent(0) as? JLabel
+
+                // La structure est maintenant : BorderLayout avec WEST (closeButtonContainer) et CENTER (nameLabel)
+                val layout = tabContainer.layout as? BorderLayout
+                val nameLabel = layout?.getLayoutComponent(BorderLayout.CENTER) as? JLabel
+                val closeButtonContainer = layout?.getLayoutComponent(BorderLayout.WEST) as? JBPanel<*>
 
                 // Mettre à jour la référence au projet et à l'index dans l'onglet
                 tabContainer.putClientProperty(PROJECT_PROPERTY, openProject)
                 tabContainer.putClientProperty(INDEX_PROPERTY, i)
-                
+
+                // Afficher ou masquer la croix selon le nombre de projets
+                closeButtonContainer?.isVisible = openProjects.size > 1
+
                 tabContainer.background = if (isSelected) com.intellij.ui.JBColor(0x35373A, 0x35373A) else com.intellij.ui.JBColor(0x1E1F22, 0x1E1F22)
 
                 nameLabel?.apply {
@@ -253,7 +265,20 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                 // Stocker la référence au projet et à l'index dans l'onglet
                 tabContainer.putClientProperty(PROJECT_PROPERTY, openProject)
                 tabContainer.putClientProperty(INDEX_PROPERTY, index)
-                
+
+                // Créer la croix seulement s'il y a plus d'un projet
+                var closeButton: CloseButton? = null
+                var closeButtonContainer: JBPanel<*>? = null
+                if (openProjects.size > 1) {
+                    closeButton = CloseButton(tabContainer)
+                    closeButtonContainer = JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                        isOpaque = false
+                        add(closeButton, BorderLayout.CENTER)
+                        preferredSize = JBUI.size(20, 0)
+                    }
+                    tabContainer.add(closeButtonContainer, BorderLayout.WEST)
+                }
+
                 // Créer un DragSource pour permettre le drag
                 val dragSource = DragSource.getDefaultDragSource()
                 dragSource.createDefaultDragGestureRecognizer(
@@ -262,20 +287,47 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                     TabDragGestureListener(index, tabContainer)
                 )
 
+                var hideTimer: Timer? = null
+
                 tabContainer.addMouseListener(object : MouseAdapter() {
                     override fun mouseEntered(e: MouseEvent?) {
+                        hideTimer?.stop()
                         val tabProject = tabContainer.getClientProperty(PROJECT_PROPERTY) as? Project
-                        if (tabProject != project) {
+                        if (tabProject != null && tabProject != project) {
                             tabContainer.background = com.intellij.ui.JBColor(0x2B2D30, 0x2B2D30)
                             tabContainer.repaint()
                         }
+                        closeButton?.isTabHovered = true
                     }
 
                     override fun mouseExited(e: MouseEvent?) {
                         val tabProject = tabContainer.getClientProperty(PROJECT_PROPERTY) as? Project
-                        if (tabProject != project) {
+                        if (tabProject != null && tabProject != project) {
                             tabContainer.background = com.intellij.ui.JBColor(0x1E1F22, 0x1E1F22)
                             tabContainer.repaint()
+                        }
+                        // Utiliser un timer pour vérifier après un court délai si la souris est toujours dans le tabContainer ou la croix
+                        hideTimer?.stop()
+                        val closeBtn = closeButton
+                        val closeBtnContainer = closeButtonContainer
+                        if (closeBtn != null && closeBtnContainer != null) {
+                            hideTimer = Timer(50) {
+                                val mouseLocation = java.awt.MouseInfo.getPointerInfo().location
+                                val containerLocation = SwingUtilities.convertPoint(tabContainer, 0, 0, null)
+                                val containerBounds = java.awt.Rectangle(containerLocation, tabContainer.size)
+
+                                val closeButtonLocation = SwingUtilities.convertPoint(closeBtnContainer, 0, 0, null)
+                                val closeButtonBounds = java.awt.Rectangle(closeButtonLocation, closeBtnContainer.size)
+
+                                if (!containerBounds.contains(mouseLocation) && !closeButtonBounds.contains(mouseLocation)) {
+                                    closeBtn.isTabHovered = false
+                                }
+                            }.apply {
+                                isRepeats = false
+                                start()
+                            }
+                        } else {
+                            closeBtn?.isTabHovered = false
                         }
                     }
 
@@ -287,22 +339,49 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                     }
                 })
 
+                closeButtonContainer?.addMouseListener(object : MouseAdapter() {
+                    override fun mouseEntered(e: MouseEvent?) {
+                        hideTimer?.stop()
+                        closeButton?.isTabHovered = true
+                    }
+
+                    override fun mouseExited(e: MouseEvent?) {
+                        // Vérifier si la souris est toujours dans le tabContainer
+                        hideTimer?.stop()
+                        val closeBtn = closeButton
+                        if (closeBtn != null) {
+                            hideTimer = Timer(50) {
+                                val mouseLocation = java.awt.MouseInfo.getPointerInfo().location
+                                val containerLocation = SwingUtilities.convertPoint(tabContainer, 0, 0, null)
+                                val containerBounds = java.awt.Rectangle(containerLocation, tabContainer.size)
+
+                                if (!containerBounds.contains(mouseLocation)) {
+                                    closeBtn.isTabHovered = false
+                                }
+                            }.apply {
+                                isRepeats = false
+                                start()
+                            }
+                        }
+                    }
+                })
+
                 add(tabContainer)
             }
             revalidate()
             repaint()
         }
-        
+
         // Classes internes pour le drag and drop
         private class TabTransferable(private val projectIndex: Int) : Transferable {
             companion object {
                 val DATA_FLAVOR = DataFlavor(Int::class.java, "Project Tab Index")
             }
-            
+
             override fun getTransferDataFlavors(): Array<DataFlavor> = arrayOf(DATA_FLAVOR)
-            
+
             override fun isDataFlavorSupported(flavor: DataFlavor): Boolean = flavor == DATA_FLAVOR
-            
+
             override fun getTransferData(flavor: DataFlavor): Any {
                 if (!isDataFlavorSupported(flavor)) {
                     throw UnsupportedFlavorException(flavor)
@@ -310,7 +389,7 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                 return projectIndex
             }
         }
-        
+
         private class TabDragGestureListener(
             private val index: Int,
             private val sourceComponent: JComponent
@@ -320,27 +399,27 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                 dge.startDrag(null, transferable)
             }
         }
-        
+
         private class PanelTransferHandler(
             private val panel: ProjectTabsPanel
         ) : TransferHandler() {
             override fun canImport(support: TransferHandler.TransferSupport): Boolean {
                 return support.isDataFlavorSupported(TabTransferable.DATA_FLAVOR) &&
                        support.isDrop &&
-                       support.dropAction == MOVE
+                       support.dropAction == DnDConstants.ACTION_MOVE
             }
-            
+
             override fun importData(support: TransferHandler.TransferSupport): Boolean {
                 if (!canImport(support)) return false
-                
+
                 try {
                     val draggedIndex = support.transferable.getTransferData(TabTransferable.DATA_FLAVOR) as Int
                     val dropLocation = support.dropLocation
-                    
+
                     // Calculer l'index de destination basé sur la position de la souris
                     val point = dropLocation.dropPoint
                     val targetIndex = calculateDropIndex(panel, point)
-                    
+
                     if (targetIndex != -1 && draggedIndex != targetIndex && targetIndex < panel.componentCount) {
                         ProjectTabsFactory.reorderProjects(draggedIndex, targetIndex)
                         return true
@@ -350,28 +429,135 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                     return false
                 }
             }
-            
+
             private fun calculateDropIndex(panel: ProjectTabsPanel, point: java.awt.Point): Int {
                 val componentCount = panel.componentCount
                 if (componentCount == 0) return -1
-                
+
                 // Convertir le point en coordonnées du panel si nécessaire
                 val x = point.x
-                
+
                 // Trouver le composant sous la position x
                 for (i in 0 until componentCount) {
                     val component = panel.getComponent(i)
                     val bounds = component.bounds
                     val centerX = bounds.x + bounds.width / 2
-                    
+
                     if (x < centerX) {
                         return i
                     }
                 }
-                
+
                 // Si on est au-delà du dernier composant, retourner la fin
                 return componentCount - 1
             }
+        }
+    }
+
+    private class CloseButton(private val tabContainer: JComponent) : JComponent() {
+        private var isHovered = false
+        var isTabHovered = false
+            set(value) {
+                field = value
+                isVisible = value || isHovered
+                repaint()
+            }
+
+        init {
+            isOpaque = false
+            preferredSize = JBUI.size(16, 16)
+            minimumSize = preferredSize
+            maximumSize = preferredSize
+            isVisible = false
+
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseEntered(e: MouseEvent?) {
+                    isHovered = true
+                    isVisible = true
+                    repaint()
+                }
+
+                override fun mouseExited(e: MouseEvent?) {
+                    isHovered = false
+                    isVisible = isTabHovered
+                    repaint()
+                }
+
+                override fun mouseClicked(e: MouseEvent?) {
+                    e?.consume()
+                    closeProject()
+                }
+            })
+        }
+
+        override fun paintComponent(g: Graphics) {
+            if (!isVisible) {
+                return
+            }
+
+            val g2 = g as Graphics2D
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+
+            val width = width
+            val height = height
+            val size = minOf(width, height)
+            val centerX = width / 2.0
+            val centerY = height / 2.0
+
+            // Dessiner le fond arrondi si hover sur la croix
+            if (isHovered) {
+                val bgColor = com.intellij.ui.JBColor(0x4A4C50, 0x4A4C50)
+                g2.color = bgColor
+                val arcSize = 4.0
+                g2.fillRoundRect(
+                    (centerX - size / 2 + 2).toInt(),
+                    (centerY - size / 2 + 2).toInt(),
+                    (size - 4).toInt(),
+                    (size - 4).toInt(),
+                    arcSize.toInt(),
+                    arcSize.toInt()
+                )
+            }
+
+            // Dessiner la croix
+            val crossSize = 6.0
+            val thickness = 1.5
+            g2.color = com.intellij.ui.JBColor(0xB0B0B0, 0xB0B0B0)
+            g2.stroke = java.awt.BasicStroke(thickness.toFloat(), java.awt.BasicStroke.CAP_ROUND, java.awt.BasicStroke.JOIN_ROUND)
+
+            val offset = crossSize / 2
+
+            // Ligne diagonale de haut gauche à bas droite
+            g2.drawLine(
+                (centerX - offset).toInt(),
+                (centerY - offset).toInt(),
+                (centerX + offset).toInt(),
+                (centerY + offset).toInt()
+            )
+
+            // Ligne diagonale de haut droite à bas gauche
+            g2.drawLine(
+                (centerX + offset).toInt(),
+                (centerY - offset).toInt(),
+                (centerX - offset).toInt(),
+                (centerY + offset).toInt()
+            )
+        }
+
+        private fun closeProject() {
+            ApplicationManager.getApplication().invokeLater {
+                // Récupérer le projet depuis le tabContainer (qui peut avoir changé de position)
+                val targetProject = tabContainer.getClientProperty(PROJECT_PROPERTY) as? Project
+                if (targetProject != null) {
+                    // Fermer le projet correctement via l'API IntelliJ
+                    // Cela déclenchera l'événement projectClosed qui rafraîchira automatiquement les onglets
+                    ProjectManager.getInstance().closeProject(targetProject)
+                }
+            }
+        }
+
+        companion object {
+            private const val PROJECT_PROPERTY = "projectTab.project"
         }
     }
 
