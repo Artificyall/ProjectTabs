@@ -11,6 +11,9 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.GridLayout
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.RenderingHints
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.Transferable
 import java.awt.datatransfer.UnsupportedFlavorException
@@ -28,30 +31,25 @@ import javax.swing.JFrame
 import javax.swing.JLabel
 import javax.swing.ScrollPaneConstants
 import javax.swing.SwingConstants
-import javax.swing.TransferHandler
-import java.awt.Graphics
-import java.awt.Graphics2D
-import java.awt.RenderingHints
 import javax.swing.SwingUtilities
 import javax.swing.Timer
+import javax.swing.TransferHandler
 
-class ProjectTabsFactory() : IdeRootPaneNorthExtension {
+class ProjectTabsFactory : IdeRootPaneNorthExtension {
 
-    private val LOG = Logger.getInstance(ProjectTabsFactory::class.java)
+    private val log = Logger.getInstance(ProjectTabsFactory::class.java)
 
     companion object {
         const val EXTENSION_ID = "com.github.artificyal.projecttabs.ProjectTabsFactory"
-        private val PANELS = Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap<ProjectTabsPanel, Boolean>()))
+        private val panels = Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap<ProjectTabsPanel, Boolean>()))
         var singleWindowMode = true
 
-        // Gestion de l'ordre personnalisé des projets
         private val projectOrder = Collections.synchronizedList(LinkedList<String>())
 
         fun getOrderedProjects(): List<Project> {
             val allProjects = ProjectManager.getInstance().openProjects.toList()
             val ordered = projectOrder.filter { path -> allProjects.any { it.basePath == path || it.name == path } }
 
-            // Ajouter les nouveaux projets à la fin
             val newProjects = allProjects.filter { project ->
                 val identifier = project.basePath ?: project.name
                 !ordered.contains(identifier)
@@ -67,7 +65,6 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                 val allProjects = ProjectManager.getInstance().openProjects.toList()
                 val currentOrder = projectOrder.toMutableList()
 
-                // S'assurer que projectOrder contient tous les projets actuels
                 val currentPaths = allProjects.map { it.basePath ?: it.name }
                 val existingOrder = currentOrder.filter { currentPaths.contains(it) }
                 val newProjects = currentPaths.filter { !currentOrder.contains(it) }
@@ -75,19 +72,14 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
 
                 if (sourceIndex in fullOrder.indices && targetIndex in 0 until fullOrder.size && sourceIndex != targetIndex) {
                     val item = fullOrder.removeAt(sourceIndex)
-                    val sizeBeforeRemove = fullOrder.size + 1 // taille avant le remove
+                    val sizeBeforeRemove = fullOrder.size + 1
 
-                    // Ajuster l'index cible après le retrait de l'élément source
-                    // Si targetIndex > sourceIndex, après le remove, targetIndex devient targetIndex - 1
-                    // Si targetIndex était le dernier élément (sizeBeforeRemove - 1), on veut mettre à la fin
                     var adjustedTargetIndex = if (targetIndex > sourceIndex) targetIndex - 1 else targetIndex
 
-                    // Cas spécial : si on déplace vers le dernier index, on veut vraiment mettre à la fin
                     if (targetIndex == sizeBeforeRemove - 1 && sourceIndex < targetIndex) {
-                        adjustedTargetIndex = fullOrder.size // mettre à la fin
+                        adjustedTargetIndex = fullOrder.size
                     }
 
-                    // S'assurer que l'index ajusté est valide (add() accepte 0 à size inclus)
                     val finalIndex = adjustedTargetIndex.coerceIn(0, fullOrder.size)
                     fullOrder.add(finalIndex, item)
 
@@ -104,7 +96,6 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                 val currentPaths = projects.map { it.basePath ?: it.name }
                 val existingOrder = projectOrder.toList()
 
-                // Préserver l'ordre existant pour les projets déjà présents
                 val preserved = existingOrder.filter { currentPaths.contains(it) }
                 val newProjects = currentPaths.filter { !existingOrder.contains(it) }
 
@@ -115,13 +106,12 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
 
         fun refreshAll() {
             ApplicationManager.getApplication().invokeLater {
-                synchronized(PANELS) {
-                    val iterator = PANELS.iterator()
+                synchronized(panels) {
+                    val iterator = panels.iterator()
                     while (iterator.hasNext()) {
                         try {
                             iterator.next().refreshTabs()
                         } catch (e: Exception) {
-                            // Ignore if panel is disposed
                         }
                     }
                 }
@@ -173,10 +163,10 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
     override val key: String = EXTENSION_ID
 
     override fun createComponent(project: Project, isDocked: Boolean): JComponent? {
-        LOG.info("ProjectTabsFactory.createComponent() for ${project.name}")
+        log.info("ProjectTabsFactory.createComponent() for ${project.name}")
         val panel = ProjectTabsPanel(project)
-        PANELS.add(panel)
-        
+        panels.add(panel)
+
         val scrollPane = JBScrollPane(panel).apply {
             verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER
             horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED
@@ -221,16 +211,13 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
 
                 val tabContainer = getComponent(i) as? JBPanel<*> ?: continue
 
-                // La structure est maintenant : BorderLayout avec WEST (closeButtonContainer) et CENTER (nameLabel)
                 val layout = tabContainer.layout as? BorderLayout
                 val nameLabel = layout?.getLayoutComponent(BorderLayout.CENTER) as? JLabel
                 val closeButtonContainer = layout?.getLayoutComponent(BorderLayout.WEST) as? JBPanel<*>
 
-                // Mettre à jour la référence au projet et à l'index dans l'onglet
                 tabContainer.putClientProperty(PROJECT_PROPERTY, openProject)
                 tabContainer.putClientProperty(INDEX_PROPERTY, i)
 
-                // Afficher ou masquer la croix selon le nombre de projets
                 closeButtonContainer?.isVisible = openProjects.size > 1
 
                 tabContainer.background = if (isSelected) com.intellij.ui.JBColor(0x35373A, 0x35373A) else com.intellij.ui.JBColor(0x1E1F22, 0x1E1F22)
@@ -262,11 +249,9 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                     add(nameLabel, BorderLayout.CENTER)
                 }
 
-                // Stocker la référence au projet et à l'index dans l'onglet
                 tabContainer.putClientProperty(PROJECT_PROPERTY, openProject)
                 tabContainer.putClientProperty(INDEX_PROPERTY, index)
 
-                // Créer la croix seulement s'il y a plus d'un projet
                 var closeButton: CloseButton? = null
                 var closeButtonContainer: JBPanel<*>? = null
                 if (openProjects.size > 1) {
@@ -279,7 +264,6 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                     tabContainer.add(closeButtonContainer, BorderLayout.WEST)
                 }
 
-                // Créer un DragSource pour permettre le drag
                 val dragSource = DragSource.getDefaultDragSource()
                 dragSource.createDefaultDragGestureRecognizer(
                     tabContainer,
@@ -306,7 +290,6 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                             tabContainer.background = com.intellij.ui.JBColor(0x1E1F22, 0x1E1F22)
                             tabContainer.repaint()
                         }
-                        // Utiliser un timer pour vérifier après un court délai si la souris est toujours dans le tabContainer ou la croix
                         hideTimer?.stop()
                         val closeBtn = closeButton
                         val closeBtnContainer = closeButtonContainer
@@ -346,7 +329,6 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                     }
 
                     override fun mouseExited(e: MouseEvent?) {
-                        // Vérifier si la souris est toujours dans le tabContainer
                         hideTimer?.stop()
                         val closeBtn = closeButton
                         if (closeBtn != null) {
@@ -372,7 +354,6 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
             repaint()
         }
 
-        // Classes internes pour le drag and drop
         private class TabTransferable(private val projectIndex: Int) : Transferable {
             companion object {
                 val DATA_FLAVOR = DataFlavor(Int::class.java, "Project Tab Index")
@@ -416,7 +397,6 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                     val draggedIndex = support.transferable.getTransferData(TabTransferable.DATA_FLAVOR) as Int
                     val dropLocation = support.dropLocation
 
-                    // Calculer l'index de destination basé sur la position de la souris
                     val point = dropLocation.dropPoint
                     val targetIndex = calculateDropIndex(panel, point)
 
@@ -434,10 +414,8 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                 val componentCount = panel.componentCount
                 if (componentCount == 0) return -1
 
-                // Convertir le point en coordonnées du panel si nécessaire
                 val x = point.x
 
-                // Trouver le composant sous la position x
                 for (i in 0 until componentCount) {
                     val component = panel.getComponent(i)
                     val bounds = component.bounds
@@ -448,7 +426,6 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                     }
                 }
 
-                // Si on est au-delà du dernier composant, retourner la fin
                 return componentCount - 1
             }
         }
@@ -504,7 +481,6 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
             val centerX = width / 2.0
             val centerY = height / 2.0
 
-            // Dessiner le fond arrondi si hover sur la croix
             if (isHovered) {
                 val bgColor = com.intellij.ui.JBColor(0x4A4C50, 0x4A4C50)
                 g2.color = bgColor
@@ -519,7 +495,6 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                 )
             }
 
-            // Dessiner la croix
             val crossSize = 6.0
             val thickness = 1.5
             g2.color = com.intellij.ui.JBColor(0xB0B0B0, 0xB0B0B0)
@@ -527,7 +502,6 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
 
             val offset = crossSize / 2
 
-            // Ligne diagonale de haut gauche à bas droite
             g2.drawLine(
                 (centerX - offset).toInt(),
                 (centerY - offset).toInt(),
@@ -535,7 +509,6 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
                 (centerY + offset).toInt()
             )
 
-            // Ligne diagonale de haut droite à bas gauche
             g2.drawLine(
                 (centerX + offset).toInt(),
                 (centerY - offset).toInt(),
@@ -546,11 +519,8 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
 
         private fun closeProject() {
             ApplicationManager.getApplication().invokeLater {
-                // Récupérer le projet depuis le tabContainer (qui peut avoir changé de position)
                 val targetProject = tabContainer.getClientProperty(PROJECT_PROPERTY) as? Project
                 if (targetProject != null) {
-                    // Fermer le projet correctement via l'API IntelliJ
-                    // Cela déclenchera l'événement projectClosed qui rafraîchira automatiquement les onglets
                     ProjectManager.getInstance().closeProject(targetProject)
                 }
             }
@@ -560,5 +530,4 @@ class ProjectTabsFactory() : IdeRootPaneNorthExtension {
             private const val PROJECT_PROPERTY = "projectTab.project"
         }
     }
-
 }
